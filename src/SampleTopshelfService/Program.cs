@@ -12,6 +12,7 @@
 // specific language governing permissions and limitations under the License.
 namespace SampleTopshelfService
 {
+    using System;
     using Topshelf;
 
     class Program
@@ -28,18 +29,33 @@ namespace SampleTopshelfService
                     bool throwOnStop = false;
                     bool throwUnhandled = false;
 
-                    x.Service(settings => new SampleService(throwOnStart, throwOnStop, throwUnhandled));
+                    x.Service(settings => new SampleService(throwOnStart, throwOnStop, throwUnhandled), s =>
+                    {
+                        s.BeforeStartingService(_ => Console.WriteLine("BeforeStart"));
+                        s.BeforeStoppingService(_ => Console.WriteLine("BeforeStop"));
+                    });
+
+                    x.SetStartTimeout(TimeSpan.FromSeconds(10));
+                    x.SetStopTimeout(TimeSpan.FromSeconds(10));
 
                     x.EnableServiceRecovery(r =>
                         {
-                            r.RestartService(0);
-                            r.RestartService(0);
-                            r.RestartService(0);
+                            r.RestartService(3);
+                            r.RunProgram(7, "ping google.com");
+                            r.RestartComputer(5, "message");
+
+                            r.OnCrashOnly();
+                            r.SetResetPeriod(2);
                         });
 
                     x.AddCommandLineSwitch("throwonstart", v => throwOnStart = v);
                     x.AddCommandLineSwitch("throwonstop", v => throwOnStop = v);
                     x.AddCommandLineSwitch("throwunhandled", v => throwUnhandled = v);
+
+                    x.OnException((exception) =>
+                    {
+                        Console.WriteLine("Exception thrown - " + exception.Message);
+                    });
                 });
         }
 
@@ -53,7 +69,7 @@ namespace SampleTopshelfService
                         {
                             s.ConstructUsing(() => new SampleSansInterfaceService());
                             s.WhenStarted(v => v.Start());
-                            s.WhenStarted(v => v.Stop());
+                            s.WhenStopped(v => v.Stop());
                         });
                 });
         }

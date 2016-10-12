@@ -22,16 +22,27 @@ namespace Topshelf.Runtime.Windows
     using System.Security.Principal;
     using System.ServiceProcess;
     using Logging;
+    using HostConfigurators;
 
     public class WindowsHostEnvironment :
         HostEnvironment
     {
         readonly LogWriter _log = HostLogger.Get(typeof(WindowsHostEnvironment));
+        private HostConfigurator _hostConfigurator;
+
+        public WindowsHostEnvironment(HostConfigurator configurator)
+        {
+            _hostConfigurator = configurator;
+        }
 
         public bool IsServiceInstalled(string serviceName)
         {
-            return ServiceController.GetServices()
-                .Any(service => string.CompareOrdinal(service.ServiceName, serviceName) == 0);
+            if (Type.GetType("Mono.Runtime") != null)
+            {
+                return false;
+            }
+            
+            return IsServiceListed(serviceName);
         }
 
         public bool IsServiceStopped(string serviceName)
@@ -42,7 +53,7 @@ namespace Topshelf.Runtime.Windows
             }
         }
 
-        public void StartService(string serviceName)
+        public void StartService(string serviceName, TimeSpan startTimeOut)
         {
             using (var sc = new ServiceController(serviceName))
             {
@@ -61,7 +72,7 @@ namespace Topshelf.Runtime.Windows
                 if (sc.Status == ServiceControllerStatus.Stopped || sc.Status == ServiceControllerStatus.Paused)
                 {
                     sc.Start();
-                    sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(10));
+                    sc.WaitForStatus(ServiceControllerStatus.Running, startTimeOut);
                 }
                 else
                 {
@@ -71,7 +82,7 @@ namespace Topshelf.Runtime.Windows
             }
         }
 
-        public void StopService(string serviceName)
+        public void StopService(string serviceName, TimeSpan stopTimeOut)
         {
             using (var sc = new ServiceController(serviceName))
             {
@@ -90,7 +101,7 @@ namespace Topshelf.Runtime.Windows
                 if (sc.Status == ServiceControllerStatus.Running || sc.Status == ServiceControllerStatus.Paused)
                 {
                     sc.Stop();
-                    sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(10));
+                    sc.WaitForStatus(ServiceControllerStatus.Stopped, stopTimeOut);
                 }
                 else
                 {
@@ -176,7 +187,7 @@ namespace Topshelf.Runtime.Windows
 
         public Host CreateServiceHost(HostSettings settings, ServiceHandle serviceHandle)
         {
-            return new WindowsServiceHost(this, settings, serviceHandle);
+            return new WindowsServiceHost(this, settings, serviceHandle, this._hostConfigurator);
         }
 
         public void SendServiceCommand(string serviceName, int command)
@@ -195,14 +206,19 @@ namespace Topshelf.Runtime.Windows
             }
         }
 
-        public void InstallService(InstallHostSettings settings, Action beforeInstall, Action afterInstall, Action beforeRollback, Action afterRollback)
+        public void InstallService(InstallHostSettings settings, Action<InstallHostSettings> beforeInstall, Action afterInstall, Action beforeRollback, Action afterRollback)
         {
             using (var installer = new HostServiceInstaller(settings))
             {
                 Action<InstallEventArgs> before = x =>
                     {
                         if (beforeInstall != null)
-                            beforeInstall();
+                        {
+                            beforeInstall(settings);
+                            installer.ServiceProcessInstaller.Username = settings.Credentials.Username;
+                            installer.ServiceProcessInstaller.Password = settings.Credentials.Password;
+                            installer.ServiceProcessInstaller.Account = settings.Credentials.Account;
+                        }
                     };
 
                 Action<InstallEventArgs> after = x =>
@@ -285,6 +301,23 @@ namespace Topshelf.Runtime.Windows
                 _log.Error("Unable to get parent process (ignored)", ex);
             }
             return null;
+        }
+
+        bool IsServiceListed(string serviceName)
+        {
+            bool result = false;
+
+            try
+            {
+                result = ServiceController.GetServices()
+                    .Any(service => string.Equals(service.ServiceName, serviceName, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (InvalidOperationException)
+            {
+                _log.Debug("Cannot access Service List due to permissions. Assuming the service is not installed.");
+            }
+
+            return result;
         }
     }
 }
