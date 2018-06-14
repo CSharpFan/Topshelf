@@ -12,7 +12,7 @@ let packagesPath = FullName "./src/packages"
 let keyFile = FullName "./Topshelf.snk"
 
 let assemblyVersion = "4.0.0.0"
-let baseVersion = "4.0.2"
+let baseVersion = "4.0.4"
 
 let semVersion : SemVerInfo = parse baseVersion
 
@@ -108,17 +108,6 @@ Target "Build" (fun _ ->
       |> DoNothing
 )
 
-let testDlls = !! ("./src/Topshelf.Tests/bin/Release/*.Tests.dll")
-
-Target "UnitTests" (fun _ ->
-    testDlls
-        |> NUnit (fun p -> 
-            {p with
-                Framework = "v4.0.30319"
-                DisableShadowCopy = true; 
-                OutputFile = buildArtifactPath + "/nunit-test-results.xml"})
-)
-
 type packageInfo = {
     Project: string
     PackageFile: string
@@ -187,7 +176,6 @@ Target "Default" (fun _ ->
 "Clean"
   ==> "RestorePackages"
   ==> "Build"
-  ==> "UnitTests"
   ==> "Package"
   ==> "Default"
 
